@@ -1,0 +1,84 @@
+---
+name: $(Date:yyyyMMdd)$(Hours)$(Minutes)$(Rev:.r)
+trigger:
+  - main
+
+resources:
+- repo: self
+
+variables:
+  repositoryName: shaila27
+  node-name: nodejs
+
+pool: 
+  name: hackathon
+  demands:  
+  - Agent.ComputerName -equals hackathonfin1-vm
+
+stages:
+- stage: nodejs
+  jobs:
+  - job: nodejs
+    displayName: node build,push and deployment
+    steps:
+      - script: |
+          wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.2.0.1873-linux.zip
+          unzip sonar-scanner-cli-4.2.0.1873-linux.zip && rm -rf sonar-scanner-cli-4.2.0.1873-linux.zip
+          mv sonar-scanner-4.2.0.1873-linux sonar-scanner
+          sonar-scanner/bin/sonar-scanner -Dsonar.projectKey=hackathon  -Dsonar.sources=. -Dsonar.host.url=http://23.99.228.234:9000 -Dsonar.login=8ad6ac65c9a356b70d7318009592c53251b08bab        
+        displayName: Sonar set
+      
+      - script: |
+          docker build -t $(repositoryName)/$(node-name):$(Build.BuildNumber) .
+        displayName: Build the docker image
+
+      - script: |
+          docker run -d --name $(node-name)  $(repositoryName)/$(node-name):$(Build.BuildNumber)
+          CID=$(docker ps -q -f status=running -f name=$(node-name))
+          if [ ! "${CID}" ]; then
+            echo "Container doesn't exist"
+            exit 1
+          else
+            echo "Container Running"
+          fi
+          unset CID
+        displayName: Verify Docker Image Running State
+
+      - script: |
+          docker rm $(docker ps -aq --filter name=$(node-name))  -f
+        displayName: Delete Running State Container
+
+      - script: |
+          echo "Peaceangels27$" | docker login --username  "shaila27" --password-stdin
+          docker push $(repositoryName)/$(node-name):$(Build.BuildNumber)
+          docker logout
+        displayName: Docker login and push the image
+
+      - script: |
+          Size=$(docker image inspect $(repositoryName)/$(node-name):$(Build.BuildNumber)  --format='{{.Size}}')
+          DockerSize=$((($Size/1024)/1024))
+          echo "$(repositoryName)/$(node-name):$(Build.BuildNumber) image size: $DockerSize Mb"
+          unset Size
+          docker rmi $(repositoryName)/$(node-name):$(Build.BuildNumber)
+        displayName: Remove Last Build Image
+
+      - script: |
+          tag=$(Build.BuildNumber)
+          imageNameandversion=$(node-name):$tag
+          repositoryName=$(repositoryName)
+          sed -i 's/containerImageName/'"$repositoryName\/$imageNameandversion"'/g' kube-deployment/main.yml
+        displayName: Preparing the k8s deployment file
+
+      - task: PublishPipelineArtifact@1
+        inputs:
+          targetPath: kube-deployment/main.yml
+          artifact: drop
+        displayName: Publish Pipeline Artifact
+
+      # - task: KubernetesManifest@0
+      #   displayName: kubernetes-deploy
+      #   inputs:
+      #     kubernetesServiceConnection: d-aks
+      #     namespace: hackathon
+      #     manifests: kube-deployment/main.yml
+

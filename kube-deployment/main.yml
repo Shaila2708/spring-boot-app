@@ -1,0 +1,26 @@
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: demo-pod
+  labels:
+    app: web-server
+spec:
+  containers:
+  - name: lino-app
+    image: containerImageName
+    ports:
+    - containerPort: 8091
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: web-server
+  ports:
+  - port: 80
+    targetPort: 8091
+
